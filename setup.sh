@@ -1,25 +1,59 @@
 #!/data/data/com.termux/files/usr/bin/bash
 
-# 1. Fix Termux repository mirror automatically
-echo "[*] Fixing Termux repositories..."
-sed -i 's|https://.*termux-main|https://packages.termux.dev/apt/termux-main|g' $PREFIX/etc/apt/sources.list
+LOG_FILE="/sdcard/pinggy_info.txt"
+RAW_LOG="/sdcard/pinggy_raw.log"
 
-# 2. Update packages and install OpenSSH & Dropbear client
-echo "[*] Installing OpenSSH..."
-pkg update -y && pkg install -y openssh
+echo "=========================================="
+echo " Starting Automatic SSH & Mirror Setup"
+echo "=========================================="
 
-# 3. Create persistent root autostart entry for Pinggy reverse tunnel
-echo "[*] Setting up persistent reverse tunnel log..."
-mkdir -p /sdcard/remote_log
+# 1. Non-interactively replace broken Termux main mirrors
+echo "[1/4] Repairing Termux package mirrors..."
+mkdir -p $PREFIX/etc/apt/sources.list.d
+echo "deb https://packages.termux.dev/apt/termux-main main" > $PREFIX/etc/apt/sources.list
 
-# 4. Kill any previous tunnel and start background connection
-pkill -f pinggy.io 2>/dev/null
-nohup ssh -p 443 -o StrictHostKeyChecking=no -R 0:localhost:2222 qr@a.pinggy.io > /sdcard/remote_log/pinggy.log 2>&1 &
+# 2. Update package list and install OpenSSH
+echo "[2/4] Updating package index & installing OpenSSH..."
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -y -o Acquire::ForceIPv4=true
+apt-get install -y openssh -o Acquire::ForceIPv4=true
 
-sleep 5
+# 3. Clean up any existing tunnels
+echo "[3/4] Resetting background tunnel processes..."
+pkill -f pinggy.io > /dev/null 2>&1
+rm -f "$LOG_FILE" "$RAW_LOG"
 
-# 5. Display the generated connection command on screen
-echo "=================================================="
-echo "SUCCESS! Share the command below with your brother:"
-echo "=================================================="
-cat /sdcard/remote_log/pinggy.log | grep -E "ssh -p [0-9]+"
+# 4. Launch persistent auto-reconnecting Pinggy tunnel
+echo "[4/4] Starting background Pinggy tunnel..."
+nohup bash -c "
+while true; do
+    ssh -p 443 -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -R 0:localhost:2222 qr@a.pinggy.io > $RAW_LOG 2>&1
+    sleep 5
+done
+" > /dev/null 2>&1 &
+
+# 5. Wait up to 15 seconds to capture the active SSH connection string
+echo "[*] Waiting for Pinggy to assign public URL..."
+COUNT=0
+while [ $COUNT -lt 15 ]; do
+    if grep -q "ssh -p" "$RAW_LOG" 2>/dev/null; then
+        grep -E "ssh -p [0-9]+" "$RAW_LOG" | head -n 1 > "$LOG_FILE"
+        break
+    fi
+    sleep 1
+    COUNT=$((COUNT + 1))
+done
+
+echo ""
+echo "=========================================="
+if [ -s "$LOG_FILE" ]; then
+    echo " SUCCESS! CONNECT USING THIS COMMAND:"
+    echo "------------------------------------------"
+    cat "$LOG_FILE"
+    echo "------------------------------------------"
+    echo "Saved to: $LOG_FILE"
+else
+    echo " Tunnel running in background."
+    echo " Check output manually: cat /sdcard/pinggy_raw.log"
+fi
+echo "=========================================="
