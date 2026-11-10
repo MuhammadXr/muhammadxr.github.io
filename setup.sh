@@ -7,23 +7,23 @@ echo "=========================================="
 echo " Starting Automatic SSH & Mirror Setup"
 echo "=========================================="
 
-# 1. Non-interactively replace broken Termux main mirrors
+# 1. Properly formatted Termux main mirror entry (stable main)
 echo "[1/4] Repairing Termux package mirrors..."
 mkdir -p $PREFIX/etc/apt/sources.list.d
-echo "deb https://packages.termux.dev/apt/termux-main main" > $PREFIX/etc/apt/sources.list
+echo "deb https://packages.termux.dev/apt/termux-main stable main" > $PREFIX/etc/apt/sources.list
 
-# 2. Update package list and install OpenSSH
+# 2. Update package index and install OpenSSH
 echo "[2/4] Updating package index & installing OpenSSH..."
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -y -o Acquire::ForceIPv4=true
-apt-get install -y openssh -o Acquire::ForceIPv4=true
+apt-get update -y
+apt-get install -y openssh
 
-# 3. Clean up any existing tunnels
+# 3. Clean up old logs & processes
 echo "[3/4] Resetting background tunnel processes..."
 pkill -f pinggy.io > /dev/null 2>&1
 rm -f "$LOG_FILE" "$RAW_LOG"
 
-# 4. Launch persistent auto-reconnecting Pinggy tunnel
+# 4. Start Pinggy background loop
 echo "[4/4] Starting background Pinggy tunnel..."
 nohup bash -c "
 while true; do
@@ -32,7 +32,7 @@ while true; do
 done
 " > /dev/null 2>&1 &
 
-# 5. Wait up to 15 seconds to capture the active SSH connection string
+# 5. Wait for public URL assignment
 echo "[*] Waiting for Pinggy to assign public URL..."
 COUNT=0
 while [ $COUNT -lt 15 ]; do
@@ -51,9 +51,8 @@ if [ -s "$LOG_FILE" ]; then
     echo "------------------------------------------"
     cat "$LOG_FILE"
     echo "------------------------------------------"
-    echo "Saved to: $LOG_FILE"
 else
-    echo " Tunnel running in background."
-    echo " Check output manually: cat /sdcard/pinggy_raw.log"
+    echo " Tunnel started. Inspect log output:"
+    cat "$RAW_LOG"
 fi
 echo "=========================================="
